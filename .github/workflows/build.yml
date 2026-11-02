@@ -74,11 +74,14 @@ jobs:
 
       - name: The keys
         id: keys
+        env:
+          PC5_IMAGE_OWNER: ${{ github.repository_owner }}
         # prospero-win is fetched and patched (seconds): the pieces' keys read it.
         run: |
           sudo mkdir -p /mnt/pc5 && sudo chown "$USER" /mnt/pc5
           tools/build.sh ci >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${{ github.repository_owner }}/pc5-build:$(cat tools/Dockerfile tools/packages.txt | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          # Registry namespaces must be lowercase, including on mixed-case forks.
+          echo "image=ghcr.io/${PC5_IMAGE_OWNER,,}/pc5-build:$(cat tools/Dockerfile tools/packages.txt | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - name: The build image
         id: image

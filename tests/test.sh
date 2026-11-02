@@ -22,6 +22,7 @@ python3 tests/make-sample-covers.py "$out/covers" >/dev/null
 # The translations' template is the sources' and every lang/*.po is merged with it; the font
 # atlas has their letters, and Chinese, Japanese and Korean their own files where the build
 # fetched their fonts (tools/build.sh sources); the .po files beside it, as the app has them.
+python3 tests/test_build_image.py
 python3 tools/update-po.py --check
 cjk=()
 [[ -f $B/downloads/DroidSansFallbackFull.ttf ]] && cjk+=(--cjk "$B/downloads/DroidSansFallbackFull.ttf")
