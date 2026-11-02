@@ -904,6 +904,35 @@ static void test_sources(void)
         CHECK(!pc5_folder_inspect(dir, "Crashlands 2", &folder) && !folder.problem[0] &&
               !strcmp(folder.exes[0].path, "Crashlands2.exe"), "the game before its crash handler: %s",
               folder.exe_count ? folder.exes[0].path : "");
+        /* A server or a tool named after the game is still one (Terraria's TerrariaServer.exe, from
+         * Playden's compatibility notes); Unreal's lighting tool beside the game (A Story About My Uncle's
+         * UnrealLightmass.exe) and Easy Anti-Cheat's starter (ARMORED CORE VI) aren't the game either. */
+        {
+            char from32[PC5_PATH];
+            path(from32, sizeof(from32), "%s/game32.exe", programs);
+            path(file, sizeof(file), "%s/stubs/Terraria/TerrariaServer.exe", work);
+            copy_file(from, file);
+            path(file, sizeof(file), "%s/stubs/Terraria/Terraria.exe", work);
+            copy_file(from32, file);
+            path(dir, sizeof(dir), "%s/stubs/Terraria", work);
+            CHECK(!pc5_folder_inspect(dir, "Terraria", &folder) && !strcmp(folder.exes[0].path, "Terraria.exe"),
+                  "the game, not its server named after it: %s", folder.exe_count ? folder.exes[0].path : "");
+            path(file, sizeof(file), "%s/stubs/A Story About My Uncle/Binaries/Win32/UnrealLightmass.exe", work);
+            copy_file(from, file);
+            path(file, sizeof(file), "%s/stubs/A Story About My Uncle/Binaries/Win32/ASAMU.exe", work);
+            copy_file(from32, file);
+            path(dir, sizeof(dir), "%s/stubs/A Story About My Uncle", work);
+            CHECK(!pc5_folder_inspect(dir, "A Story About My Uncle", &folder) &&
+                      !strcmp(folder.exes[0].path, "Binaries/Win32/ASAMU.exe"),
+                  "the game, not Unreal's lighting tool: %s", folder.exe_count ? folder.exes[0].path : "");
+            path(file, sizeof(file), "%s/stubs/Armored/start_protected_game.exe", work);
+            copy_file(from, file);
+            path(file, sizeof(file), "%s/stubs/Armored/Game/armoredcore6.exe", work);
+            copy_file(from32, file);
+            path(dir, sizeof(dir), "%s/stubs/Armored", work);
+            CHECK(!pc5_folder_inspect(dir, "Armored", &folder) && !strcmp(folder.exes[0].path, "Game/armoredcore6.exe"),
+                  "the game, not Easy Anti-Cheat's starter: %s", folder.exe_count ? folder.exes[0].path : "");
+        }
         /* A folder's only program is the game, a helper's word in its name or not; an installer isn't. */
         path(file, sizeof(file), "%s/stubs/Wreck/ServerQuest.exe", work);
         copy_file(from, file);
@@ -2573,8 +2602,38 @@ static void test_controls(void)
     k.stick[1] = PC5_STICK_KEYS;   /* no pointer: no slow button */
     CHECK(!pc5_controls_input(&k, text, sizeof(text)) && !strstr(text, "mouse_slow"), "no pointer: not written");
     CHECK(!strcmp(pc5_control_name(0), "Cross") && !strcmp(pc5_control_name(24), "Right stick right") &&
-              !strcmp(pc5_control_name(25), "") && !strcmp(pc5_pad_mode_name(PC5_PAD_DUALSENSE), "DualSense"),
+              !strcmp(pc5_control_name(25), "Touchpad left half") && !strcmp(pc5_control_name(31), "Two-finger click") &&
+              !strcmp(pc5_control_name(32), "") && !strcmp(pc5_pad_mode_name(PC5_PAD_DUALSENSE), "DualSense"),
           "names");
+    /* The touchpad: one button by default, as before (nothing more written); its halves and swipes, or a
+     * mouse; a two-finger click only when it is a key (else PC5's on-screen keyboard). */
+    pc5_controls_default(&k);
+    k.mode = PC5_PAD_KEYBOARD;
+    CHECK(!pc5_controls_input(&k, text, sizeof(text)) && !strstr(text, "touchpad_mode") && !strstr(text, "touch_left") &&
+              !strstr(text, "two_finger") && strstr(text, "touchpad = enter\n"), "touchpad: one button: %s", text);
+    k.touch_mode = 1;
+    k.key[PC5_TOUCH_FIRST + 2] = (uint8_t)3;   /* swipe up: wheel up */
+    k.key[PC5_TWO_FINGER] = k.key[14];         /* two fingers: Escape, as OPTIONS */
+    CHECK(!pc5_controls_input(&k, text, sizeof(text)) && strstr(text, "touchpad_mode = zones\n") &&
+              strstr(text, "touch_left = enter\n") && strstr(text, "touch_right = escape\n") &&
+              strstr(text, "swipe_up = mouse_wheel_up\n") && strstr(text, "swipe_down = none\n") &&
+              strstr(text, "two_finger = escape\n"), "touchpad: halves and swipes: %s", text);
+    pw_game_input_init(&input);
+    CHECK(pw_game_input_parse((const uint8_t *)text, strlen(text), &input) == 0 && input.touch_mode == PW_GAME_TOUCH_ZONES &&
+              input.touch[0].kind == PW_GAME_BIND_KEY && input.touch[0].code == 0x0d &&
+              input.touch[2].kind == PW_GAME_BIND_WHEEL && input.touch[3].kind == PW_GAME_BIND_NONE &&
+              input.touch[6].kind == PW_GAME_BIND_KEY && input.touch[6].code == 0x1b, "prospero-win reads the touchpad's");
+    CHECK(!pc5_controls_save(dir, "touch", &k) && !pc5_controls_load(dir, "touch", &back) && back.touch_mode == 1 &&
+              back.key[PC5_TOUCH_FIRST + 2] == 3 && back.key[PC5_TWO_FINGER] == k.key[14], "the touchpad kept and read back");
+    CHECK(!pc5_controls_mapping_save(dir, &k), "saved as my mapping");
+    pc5_controls_default(&back);
+    CHECK(!pc5_controls_mapping_load(dir, &back) && back.touch_mode == 1 && back.key[PC5_TWO_FINGER] == k.key[14],
+          "my mapping has the touchpad's");
+    k.touch_mode = 2;
+    CHECK(!pc5_controls_input(&k, text, sizeof(text)) && strstr(text, "touchpad_mode = mouse\n") &&
+              !strstr(text, "touch_left") && strstr(text, "touchpad = enter\n"), "touchpad: mouse: %s", text);
+    CHECK(!strcmp(pc5_touch_mode_name(1), "Halves and swipes") && !strcmp(pc5_touch_mode_name(7), "One button"),
+          "the touchpad's names");
 }
 
 /* ---- settings, updates, logs, covers ---------------------------------------------------------- */
@@ -6217,7 +6276,9 @@ static void test_controller_screens(Pc5Ui *ui, Pc5Canvas *canvas)
               controls_has("orbital-nine", "right_stick = pointer\n") && controls_has("orbital-nine", "left_stick_up = w\n") &&
               controls_has("orbital-nine", "pointer_speed = 4\n") && controls_has("orbital-nine", "slow_button = none\n"),
           "reset: the default layout, still Keyboard & mouse");
-    /* The touchpad (the row above) sends nothing, the last key, found down the picker's column. */
+    /* The touchpad's click (two rows up, above Two-finger click) sends nothing, the last key, found down
+     * the picker's column. */
+    press(ui, PC5_KEY_UP, canvas);
     press(ui, PC5_KEY_UP, canvas);
     press(ui, PC5_KEY_ACCEPT, canvas);
     for (int i = 0; i < 5; i++) press(ui, PC5_KEY_DOWN, canvas);
