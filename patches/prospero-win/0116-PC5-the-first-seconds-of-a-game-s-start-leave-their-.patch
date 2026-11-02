@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: swizzbeatz <20747127+swizzbeatz@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 21:51:06 +0100
+Subject: [PATCH] PC5: the first seconds of a game's start leave their memory
+ and mapping state, and a terminate signal is reported
+
+Forza Horizon 6 (PC5 issue 323) ends in its first two to four seconds with
+no fault, no exit line and no crash marker, in the middle of loading its
+imports. The memory and mapping lines come every five seconds, so none
+is written before it ends. Until 30 seconds after Wine starts, a pulse line
+every ~100 ms gives the flexible memory left, the direct memory in use and
+its peak, the mmap, munmap and mprotect counts, the faults and the images
+mapped. SIGTERM, SIGHUP, SIGQUIT, SIGSYS and SIGXCPU are written by the
+signal path, then take their default action.
+---
+ native/wine64_main.c | 36 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/native/wine64_main.c b/native/wine64_main.c
+index 6e6f0cd..ddc755e 100644
+--- a/native/wine64_main.c
++++ b/native/wine64_main.c
+@@ -1393,6 +1393,18 @@ static void early_fault(int sig, siginfo_t *info, void *opaque)
+     _exit(3);
+ }
+ 
++/* A signal that ends the process without a fault (the console's own kill, a
++ * terminate request): written by the signal path with the signal's number,
++ * then the default action. Wine may later replace these handlers; a title
++ * that dies at once, before Wine's own, is the case this reports. (Forza
++ * Horizon 6, PC5 issue 323: the log just stops, with no fault and no exit.) */
++static void end_notice(int sig)
++{
++    pw_diagnostics_emergency(sig, 0, 0, -1, 0);
++    signal(sig, SIG_DFL);
++    raise(sig);
++}
++
+ static void install_early_fault_report(PwWineStart *start)
+ {
+     struct sigaction action;
+@@ -1406,6 +1418,11 @@ static void install_early_fault_report(PwWineStart *start)
+     sigaction(SIGBUS, &action, NULL);
+     sigaction(SIGILL, &action, NULL);
+     sigaction(SIGABRT, &action, NULL);
++    signal(SIGTERM, end_notice);
++    signal(SIGHUP, end_notice);
++    signal(SIGQUIT, end_notice);
++    signal(SIGSYS, end_notice);
++    signal(SIGXCPU, end_notice);
+ }
+ 
+ /* ---- PS5 bindings for the start sequence ------------------------------ */
+@@ -2233,6 +2250,25 @@ int main(int argc, char **argv)
+             restart_title(NULL, launch.cycle + 1u, "close-timeout");
+             break;
+         }
++        /* The first 30 seconds of a game, ten times a second: memory and mapping counters, so
++         * a process that ends in its first seconds (the 5-second lines below never come)
++         * leaves its last state, to within a tenth of a second. */
++        if (tick < 30 * PW_WINE64_TICKS_PER_S && tick % 6 == 0) {
++            uint64_t m[13] = { 0 }, v[16] = { 0 };
++            size_t flexible = 0;
++
++            if (start.memory_stats) start.memory_stats(m, 13);
++            if (start.virtual_stats) start.virtual_stats(v, 16);
++            (void)sceKernelAvailableFlexibleMemorySize(&flexible);
++            PS5LOG_LOG("PW_WINE64 pulse tick=%llu ms=%llu flexible_free=%zuK dmem=%lluK dmem_peak=%lluK "
++                       "dmem_failures=%llu mmap=%llu munmap=%llu mprotect=%llu faults=%llu images=%llu "
++                       "cpu_ms=%llu",
++                       (unsigned long long)tick, (unsigned long long)((now - started) / 1000000u),
++                       flexible >> 10, (unsigned long long)(m[0] >> 10), (unsigned long long)(m[1] >> 10),
++                       (unsigned long long)m[3], (unsigned long long)v[0], (unsigned long long)v[1],
++                       (unsigned long long)v[2], (unsigned long long)v[5], (unsigned long long)v[6],
++                       cpu_ms());
++        }
+         if (tick % 60 == 0) {
+             uint64_t v[16] = { 0 };
+ 
+-- 
+2.54.0.windows.1
+
