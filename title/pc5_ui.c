@@ -7196,8 +7196,12 @@ static void game_menu_screen(Pc5Ui *ui, Pc5Canvas *c, int chosen)
         char where[PC5_PATH + 40];
         /* TRANSLATORS: in a game's menu, under its details: where its folder is on the console. %s is a path. */
         pc5_tf(where, sizeof(where), "Location: %s", ui->menu_location);
-        pc5_text(c, &ui->fonts, PC5_FACE_SMALL, (int)x + 64, 238, C_DIM, where, 760 - 128, 0);
-        top = 266;
+        /* a console path is long: it wraps (three lines at most) rather than being cut */
+        int lines = pc5_text_lines(&ui->fonts, PC5_FACE_SMALL, 760 - 128, where);
+        if (lines > 3) lines = 3;
+        if (lines < 1) lines = 1;
+        pc5_text_wrap(c, &ui->fonts, PC5_FACE_SMALL, (int)x + 64, 238, 760 - 128, lines, 24, C_DIM, where, 0);
+        top = 266 + 24 * (lines - 1);
     }
     text = "";
     if (chosen >= 0 && chosen < count) game_row_text(ui, game, kind, rows[chosen], about, sizeof(about), &label, &text, &value);
