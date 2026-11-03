@@ -548,7 +548,7 @@ struct Pc5Ui {
     Pc5Details hero;
     Pc5Image hero_logo;
     Pc5Controls hero_controls;
-    char hero_location[PC5_PATH];  /* where the game's folder is on the console ("" when PC5 doesn't know) */
+    char menu_location[PC5_PATH];  /* where the game menu's game has its folder on the console ("" when PC5 doesn't know) */
     /* The Library tab: its lists (LISTS_*) of library indexes, the list and place chosen. */
     int lists[LISTS][PC5_MAX_GAMES], list_count[LISTS], list_at, list_item[LISTS];
     uint8_t favourite[PC5_MAX_GAMES];   /* prefixes/<prefix>/pc5/favourite.txt is there; read with the library */
@@ -2874,6 +2874,16 @@ static void game_menu_open(Pc5Ui *ui, const char *id)
                                             pc5_game_program(ui->root, id, program, sizeof(program)) ? NULL : program,
                                             found, PC5_STEAM_DLLS);
         pc5_free(found);
+    }
+    /* its folder, as the console has it: in the game's Windows, or on its USB drive (the path
+     * on the drive when the drive isn't plugged in) */
+    ui->menu_location[0] = 0;
+    if (index >= 0 && ui->library.games[index].pc5 &&
+        pc5_game_folder(ui->root, id, ui->menu_location, sizeof(ui->menu_location))) {
+        Pc5Info info;
+        ui->menu_location[0] = 0;
+        if (ui->library.games[index].usb && !pc5_info_read(ui->root, id, &info))
+            pc5_copy(ui->menu_location, sizeof(ui->menu_location), info.usb);
     }
     ui->menu = 0;
     ui->game_page = GP_MAIN;
@@ -6485,15 +6495,6 @@ static void hero_refresh(Pc5Ui *ui)
         pc5_buf_free(&bytes);
     }
     pc5_controls_load(ui->root, game->prefix, &ui->hero_controls);
-    /* its folder, as the console has it: in the game's Windows, or on its USB drive (the path
-     * on the drive when the drive isn't plugged in) */
-    ui->hero_location[0] = 0;
-    if (game->pc5 && pc5_game_folder(ui->root, game->prefix, ui->hero_location, sizeof(ui->hero_location))) {
-        Pc5Info info;
-        ui->hero_location[0] = 0;
-        if (game->usb && !pc5_info_read(ui->root, game->prefix, &info))
-            pc5_copy(ui->hero_location, sizeof(ui->hero_location), info.usb);
-    }
     ui->dirty = 1;
 }
 
@@ -6506,13 +6507,6 @@ static void hero(Pc5Ui *ui, Pc5Canvas *c)
     const Pc5Controls *k = &ui->hero_controls;
     char tags[200];
 
-    /* where it is: its folder on the console */
-    if (ready && ui->hero_location[0]) {
-        char where[PC5_PATH + 40];
-        /* TRANSLATORS: above a game's name on Home: where its folder is on the console. %s is a path. */
-        pc5_tf(where, sizeof(where), "Location: %s", ui->hero_location);
-        pc5_text(c, &ui->fonts, PC5_FACE_SMALL, MARGIN, 168, C_DIM, where, 1500, 0);
-    }
     /* what it is: its genres, or what PC5 knows */
     pc5_copy(tags, sizeof(tags), ready && ui->hero.genres[0] ? ui->hero.genres : TX(game->detail));
     caps_left(ui, c, PC5_FACE_SMALL, MARGIN, 196, 0xd9e6e9f0u, tags, 4);
@@ -7196,12 +7190,21 @@ static void game_menu_screen(Pc5Ui *ui, Pc5Canvas *c, int chosen)
     int count = game_rows(&ui->controls, kind, page, rows);
     pc5_text(c, &ui->fonts, PC5_FACE_SMALL, (int)x + 64, 210, C_DIM,
              page != GP_MAIN ? game->title : game->playable ? TX(game->detail) : TX(game->problem), 760 - 128, 0);
+    /* under that: where the game's folder is */
+    float top = 240;
+    if (page == GP_MAIN && ui->menu_location[0]) {
+        char where[PC5_PATH + 40];
+        /* TRANSLATORS: in a game's menu, under its details: where its folder is on the console. %s is a path. */
+        pc5_tf(where, sizeof(where), "Location: %s", ui->menu_location);
+        pc5_text(c, &ui->fonts, PC5_FACE_SMALL, (int)x + 64, 238, C_DIM, where, 760 - 128, 0);
+        top = 266;
+    }
     text = "";
     if (chosen >= 0 && chosen < count) game_row_text(ui, game, kind, rows[chosen], about, sizeof(about), &label, &text, &value);
-    float pitch = rows_pitch(ui, 240, count, text, &extra);
+    float pitch = rows_pitch(ui, top, count, text, &extra);
     for (int i = 0; i < count; i++) {
         game_row_text(ui, game, kind, rows[i], about, sizeof(about), &label, &text, &value);
-        drawer_row(ui, c, x, 240 + pitch * i + (i > chosen ? extra : 0), pitch + (i == chosen ? extra : 0), chosen == i,
+        drawer_row(ui, c, x, top + pitch * i + (i > chosen ? extra : 0), pitch + (i == chosen ? extra : 0), chosen == i,
                    label, text, value);
     }
     GameRow row = chosen >= 0 && chosen < count ? rows[chosen] : GR_PLAY;
