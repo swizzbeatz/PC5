@@ -548,6 +548,7 @@ struct Pc5Ui {
     Pc5Details hero;
     Pc5Image hero_logo;
     Pc5Controls hero_controls;
+    char hero_location[PC5_PATH];  /* where the game's folder is on the console ("" when PC5 doesn't know) */
     /* The Library tab: its lists (LISTS_*) of library indexes, the list and place chosen. */
     int lists[LISTS][PC5_MAX_GAMES], list_count[LISTS], list_at, list_item[LISTS];
     uint8_t favourite[PC5_MAX_GAMES];   /* prefixes/<prefix>/pc5/favourite.txt is there; read with the library */
@@ -6484,6 +6485,15 @@ static void hero_refresh(Pc5Ui *ui)
         pc5_buf_free(&bytes);
     }
     pc5_controls_load(ui->root, game->prefix, &ui->hero_controls);
+    /* its folder, as the console has it: in the game's Windows, or on its USB drive (the path
+     * on the drive when the drive isn't plugged in) */
+    ui->hero_location[0] = 0;
+    if (game->pc5 && pc5_game_folder(ui->root, game->prefix, ui->hero_location, sizeof(ui->hero_location))) {
+        Pc5Info info;
+        ui->hero_location[0] = 0;
+        if (game->usb && !pc5_info_read(ui->root, game->prefix, &info))
+            pc5_copy(ui->hero_location, sizeof(ui->hero_location), info.usb);
+    }
     ui->dirty = 1;
 }
 
@@ -6496,6 +6506,13 @@ static void hero(Pc5Ui *ui, Pc5Canvas *c)
     const Pc5Controls *k = &ui->hero_controls;
     char tags[200];
 
+    /* where it is: its folder on the console */
+    if (ready && ui->hero_location[0]) {
+        char where[PC5_PATH + 40];
+        /* TRANSLATORS: above a game's name on Home: where its folder is on the console. %s is a path. */
+        pc5_tf(where, sizeof(where), "Location: %s", ui->hero_location);
+        pc5_text(c, &ui->fonts, PC5_FACE_SMALL, MARGIN, 168, C_DIM, where, 1500, 0);
+    }
     /* what it is: its genres, or what PC5 knows */
     pc5_copy(tags, sizeof(tags), ready && ui->hero.genres[0] ? ui->hero.genres : TX(game->detail));
     caps_left(ui, c, PC5_FACE_SMALL, MARGIN, 196, 0xd9e6e9f0u, tags, 4);
